@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>XDownloader settings</title>
+    <link rel="stylesheet" href="downloader.css">
+    <script defer src="downloader.js"></script>
+</head>
+<body class="xd-settings">
+    <h1>XDownloader</h1>
+    <form>
+        <label class="xd-quality">Video quality
+            <select name="quality">
+                <option value="best">Best available</option>
+                <option value="balanced">Balanced</option>
+                <option value="smallest">Smallest file</option>
+            </select>
+        </label>
+        <fieldset>
+            <legend>Save X GIFs as</legend>
+            <label><input type="radio" name="animationFormat" value="mp4" checked> MP4</label>
+            <label><input type="radio" name="animationFormat" value="webp"> WebP</label>
+        </fieldset>
+        <label><input type="checkbox" name="shortSilentVideosAsWebp"> Save short silent videos as WebP</label>
+        <div class="xd-duration">
+            <label for="xd-duration">Maximum duration</label>
+            <span id="xd-duration-value" aria-hidden="true"></span>
+            <input type="range" id="xd-duration" name="shortWebpMaxSeconds" min="1" max="30" disabled>
+        </div>
+        <label><input type="checkbox" name="spcificPathName"> Ask where to save</label>
+        <label><input type="checkbox" name="readableName"> Name files by author and post</label>
+        <label><input type="checkbox" name="hideViewCount"> Hide view count</label>
+        <output role="status"></output>
+    </form>
+</body>
+</html>

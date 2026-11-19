@@ -1,0 +1,53 @@
+{
+  "manifest_version": 2,
+  "name": "XDownloader",
+  "description": "Download photos, videos, and GIFs from X.",
+  "version": "1.0.0",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "xdownloader@mint.local",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
+  "permissions": [
+    "*://x.com/*",
+    "*://*.x.com/*",
+    "*://twitter.com/*",
+    "*://*.twitter.com/*",
+    "https://pbs.twimg.com/*",
+    "https://video.twimg.com/*",
+    "storage",
+    "downloads"
+  ],
+  "icons": {
+    "16": "icon_bitty.png",
+    "48": "icon_small.png",
+    "96": "icon_medium.png",
+    "128": "icon_large.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://x.com/*", "*://*.x.com/*", "*://twitter.com/*", "*://*.twitter.com/*"],
+      "css": ["downloader.css"],
+      "js": ["downloader.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["*://x.com/*", "*://*.x.com/*", "*://twitter.com/*", "*://*.twitter.com/*"],
+      "js": ["capture.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    }
+  ],
+  "browser_action": {
+    "default_title": "XDownloader settings",
+    "default_icon": "icon_small.png",
+    "default_popup": "options.html"
+  },
+  "background": {
+    "scripts": ["webp.js", "downloader.js"]
+  }
+}

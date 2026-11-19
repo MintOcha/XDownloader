@@ -1,0 +1,67 @@
+.xd-download {
+    display: inline-grid;
+    place-items: center;
+    background: none;
+    color: var(--xd-icon-color, #71767b);
+    border: 0;
+    border-radius: 50%;
+    padding: .4rem;
+    cursor: pointer;
+}
+.xd-download:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
+.xd-download[data-state="complete"] { color: #658479; }
+.xd-download[data-state="pending"] { opacity: .6; }
+.xd-download[data-state="failed"] { color: light-dark(#ad2729, #ff8c89); }
+.xd-download .xd-fallback-icon { width: 1.25rem; height: 1.25rem; }
+.xd-hide-views article a[href$="/analytics"] { display: none; }
+
+.xd-picker, .xd-settings {
+    color-scheme: light dark;
+    color: CanvasText;
+    background: Canvas;
+    font: 14px system-ui, sans-serif;
+}
+.xd-picker {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    max-width: calc(100vw - 1rem);
+    min-width: min(10rem, calc(100vw - 1rem));
+    max-height: calc(100vh - 1rem);
+    overflow: auto;
+    box-sizing: border-box;
+    padding: .45rem;
+    border: 1px solid GrayText;
+    border-radius: .85rem;
+    box-shadow: 0 .25rem 1.2rem rgb(0 0 0 / .2);
+}
+.xd-picker:popover-open { display: grid; gap: .35rem; }
+.xd-choice {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    min-height: 44px;
+    font: inherit;
+    cursor: pointer;
+    padding: .35rem;
+    border: 1px solid transparent;
+    border-radius: .5rem;
+    background: color-mix(in srgb, CanvasText 7%, Canvas);
+    color: CanvasText;
+    text-align: start;
+}
+.xd-choice:hover:not(:disabled) { border-color: Highlight; }
+.xd-choice img { width: 2.5rem; aspect-ratio: 1; object-fit: cover; border-radius: .3rem; }
+.xd-choice small { margin-inline-end: .35rem; }
+.xd-choice small:empty { display: none; }
+.xd-settings { min-width: 19rem; margin: 0; padding: 1rem; }
+.xd-settings h1 { margin: 0 0 .8rem; font-size: 1.1rem; }
+.xd-settings form { display: grid; gap: .65rem; }
+.xd-settings .xd-quality { display: flex; align-items: center; justify-content: space-between; gap: .8rem; }
+.xd-settings select { font: inherit; }
+.xd-settings fieldset { border: 1px solid GrayText; border-radius: .45rem; }
+.xd-settings fieldset label + label { margin-inline-start: .8rem; }
+.xd-settings .xd-duration { display: grid; grid-template-columns: 1fr auto; gap: .25rem .6rem; margin-inline-start: 1.4rem; }
+.xd-settings .xd-duration input { grid-column: 1 / -1; width: 100%; margin-inline: 0; }
+.xd-settings .xd-duration:has(input:disabled) { opacity: .55; }
+.xd-settings output:empty { display: none; }
