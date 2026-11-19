@@ -1,6 +1,15 @@
 (() => {
     const fetch = window.fetch
     const { open, send } = XMLHttpRequest.prototype
+    for (const method of ['pushState', 'replaceState']) {
+        const navigate = history[method]
+        history[method] = function (...args) {
+            const previous = location.pathname
+            const result = navigate.apply(this, args)
+            if (location.pathname !== previous) window.postMessage({ type: 'xdownloader:navigation' }, location.origin)
+            return result
+        }
+    }
     const graphql = input => {
         const url = URL.parse(typeof input === 'string' ? input : input?.url ?? input?.href ?? '', location.href)
         return url?.origin === location.origin && url.pathname.startsWith('/i/api/graphql/')
@@ -18,11 +27,12 @@
                 const quote = unwrap(node.quoted_status_result?.result)
                 const repost = unwrap(node.legacy.retweeted_status_result?.result ?? node.retweeted_status_result?.result)
                 const media = node.legacy.extended_entities?.media ?? node.legacy.entities?.media ?? []
+                const author = node.core?.user_results?.result
                 const related = [quote?.legacy?.id_str, repost?.legacy?.id_str].filter(Boolean)
                 if (media.length || related.length) {
                     posts.push({
                         id: node.legacy.id_str,
-                        owner: node.core?.user_results?.result?.core?.screen_name,
+                        owner: author?.core?.screen_name ?? author?.legacy?.screen_name,
                         related,
                         media: media.map(item => ({
                             id: item.id_str ?? item.media_key,

@@ -1,9 +1,9 @@
 (() => {
     const defaults = {
-        quality: 'best', animationFormat: 'mp4',
-        shortSilentVideosAsWebp: false,
-        shortWebpMaxSeconds: 10,
-        spcificPathName: false, readableName: false, hideViewCount: false,
+        quality: 'best', animationFormat: 'webp',
+        shortSilentVideosAsWebp: true,
+        shortWebpMaxSeconds: 5,
+        spcificPathName: false, readableName: true, hideViewCount: false,
     }
     const mediaHost = { photo: 'pbs.twimg.com', video: 'video.twimg.com', animated_gif: 'video.twimg.com' }
     const idPattern = /^\d+$/
@@ -55,17 +55,29 @@
     function startTimeline() {
         const posts = new Map()
         const status = /\/status\/(\d+)(?:\/|$)/
+        const photo = /^\/(\w+)\/status\/(\d+)\/photo\/([1-9]\d*)\/?$/
+        const profileGallery = /^\/\w+\/(?:media|photos)\/?$/
         const article = 'article[data-testid="tweet"]'
-        const viewer = '[role="dialog"], [aria-modal="true"]'
-        const surface = `${article}, ${viewer}`
-        const media = 'img[src*="pbs.twimg.com/media/"], video, [data-testid="videoPlayer"]'
+        const viewer = '[role="dialog"], [aria-modal="true"], [aria-label="Media Viewer"]'
+        const tile = '[role="listitem"]'
+        const identifiedTile = `${tile}[id*="-profile-photo-grid-"]`
+        const tilesOnPage = () => profileGallery.test(location.pathname) ? tile : identifiedTile
+        const photoLink = 'a[href*="/status/"][href*="/photo/"]'
+        const photoImage = 'img[src*="pbs.twimg.com/media/"]'
+        const media = `${photoImage}, video, [data-testid="videoPlayer"]`
         const shareIcon = '[data-testid="share"] svg, svg:has(path[d^="M12 2.59l5.7 5.7"])'
+        const viewerToolbar = `[role="group"]:has([data-testid="reply"]):not(${article} *, :is(${viewer}) *)`
+        const surface = `${article}, ${viewer}, ${viewerToolbar}`
         const downloadPath = 'M12 16l-5.7-5.7 1.41-1.42L11 12.18V2.59h2v9.59l3.3-3.3 1.41 1.42L12 16zM21 15l-.02 3.51c0 1.38-1.12 2.49-2.5 2.49H5.5C4.11 21 3 19.88 3 18.5V15h2v3.5c0 .28.22.5.5.5h12.98c.28 0 .5-.22.5-.5L19 15h2z'
         let picker
+        const itemState = (post, id, otherwise = '') =>
+            post?.pending.has(id) ? 'pending' : post?.saved.has(id) ? 'complete' : otherwise
+        const postState = (post, otherwise = '') => post?.saved.size ? 'complete' : post?.pending.size ? 'pending' : otherwise
 
         window.addEventListener('message', event => {
-            if (event.source !== window || event.origin !== location.origin || event.data?.type !== 'xdownloader:media') return
-            if (!Array.isArray(event.data.posts)) return
+            if (event.source !== window || event.origin !== location.origin) return
+            if (event.data?.type === 'xdownloader:navigation') return navigated()
+            if (event.data?.type !== 'xdownloader:media' || !Array.isArray(event.data.posts)) return
             for (const record of event.data.posts) {
                 if (typeof record?.id !== 'string' || !idPattern.test(record.id) || !Array.isArray(record.media)) continue
                 const post = getPost(record.id)
@@ -93,112 +105,256 @@
         }
 
         function postOn(element) {
-            if (!element.matches(article)) return location.pathname.match(status)
+            if (!element.matches(article)) return location.pathname.match(status)?.[1]
             for (const link of element.querySelectorAll('a[href*="/status/"]')) {
                 if (link.closest(article) !== element || !link.querySelector('time')) continue
                 const match = link.pathname.match(status)
-                if (match) return match
+                if (match) return match[1]
             }
             return null
         }
 
         const dirty = new Set()
         let frame = 0
-        function add(node) {
+        let path = location.pathname
+        function schedule() {
+            if (!frame && dirty.size) frame = requestAnimationFrame(() => {
+                frame = 0
+                for (const element of dirty) if (element.isConnected) install(element)
+                dirty.clear()
+            })
+        }
+
+        function rescan() {
+            for (const element of document.querySelectorAll(`${surface}, ${tilesOnPage()}, ${tile}:has(> .xd-photo-download)`)) dirty.add(element)
+            schedule()
+        }
+
+        function navigated() {
+            const next = location.pathname
+            if (next === path) return
+            const changedMediaView = [path, next].some(path => photo.test(path) || profileGallery.test(path))
+            path = next
+            if (changedMediaView) rescan()
+        }
+
+        function add(node, tiles) {
             if (node.nodeType !== Node.ELEMENT_NODE || node.closest('.xd-download, .xd-picker')) return
             const parent = node.closest(surface)
             if (parent) dirty.add(parent)
-            for (const element of node.querySelectorAll(surface)) dirty.add(element)
+            const modal = node.closest(viewer)
+            if (modal) dirty.add(modal)
+            const photoTile = node.closest(tiles)
+            if (photoTile) dirty.add(photoTile)
+            for (const element of node.querySelectorAll(`${surface}, ${tiles}`)) dirty.add(element)
         }
         function start() {
-            document.querySelectorAll(surface).forEach(install)
+            rescan()
+            addEventListener('popstate', navigated)
             new MutationObserver(records => {
+                const tiles = tilesOnPage()
                 for (const record of records) {
-                    if (record.type === 'attributes') add(record.target)
-                    else for (const node of record.addedNodes) add(node)
+                    if (record.type === 'attributes') {
+                        if (record.attributeName !== 'href' || record.target.closest(tiles)) add(record.target, tiles)
+                    } else {
+                        for (const node of record.addedNodes) add(node, tiles)
+                        const changedTile = record.removedNodes.length && record.target.closest(tiles)
+                        if (changedTile) dirty.add(changedTile)
+                    }
                 }
-                if (dirty.size && !frame) frame = requestAnimationFrame(() => {
-                    frame = 0
-                    for (const element of dirty) if (element.isConnected) install(element)
-                    dirty.clear()
-                })
-            }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'poster'] })
+                schedule()
+            }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'poster', 'href'] })
         }
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true })
         else start()
 
+        function viewedPhoto(id) {
+            const match = location.pathname.match(photo)
+            if (match?.[2] === id) return match
+        }
+
         function install(element) {
-            const match = postOn(element)
-            if (!match) return
-            const share = [...element.querySelectorAll(shareIcon)].find(icon => icon.closest(surface) === element)
-            const group = share?.closest('[role="group"]') ??
-                [...element.querySelectorAll('[role="group"]')].findLast(candidate => candidate.closest(surface) === element)
-            if (!group) return
-            let button = group.querySelector(':scope > .xd-download')
+            if (!element.matches(surface)) return installTile(element)
+            const id = postOn(element)
+            const toolbar = element.matches(viewerToolbar)
+            const viewed = viewedPhoto(id)
+            if (!viewed) element.querySelector(':scope > .xd-viewer-download')?.remove()
+            if (toolbar && !viewed) return element.querySelector(':scope > .xd-download')?.remove()
+            if (!id) return
+            const owns = node => node.closest(surface) === element
+            const share = [...element.querySelectorAll(shareIcon)].find(owns)
+            if (toolbar && !share) return
+            const group = toolbar ? element : share?.closest('[role="group"]')
+                ?? [...element.querySelectorAll('[role="group"]')].findLast(owns)
+            if (!group && (!viewed || element.matches(article) || element.querySelector(viewer))) return
+            let button = group?.querySelector(':scope > .xd-download') ?? element.querySelector(':scope > .xd-viewer-download')
             if (!button) {
-                if (!element.querySelector(media)) return
-                button = document.createElement('button')
-                button.type = 'button'
-                button.className = 'xd-download'
-                const svg = share?.cloneNode(false) ?? document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-                svg.setAttribute('viewBox', '0 0 24 24')
-                svg.setAttribute('aria-hidden', 'true')
-                if (share) {
-                    const style = getComputedStyle(share)
-                    button.style.setProperty('--xd-icon-color', style.color)
-                    svg.style.fontSize = style.fontSize
-                } else svg.classList.add('xd-fallback-icon')
-                const path = document.createElementNS(svg.namespaceURI, 'path')
-                path.setAttribute('d', downloadPath)
-                path.setAttribute('fill', 'currentColor')
-                svg.append(path)
-                button.append(svg)
-                button.addEventListener('click', event => {
-                    event.stopPropagation()
-                    event.preventDefault()
-                    const selected = postOn(element)
-                    if (selected) choose(button, selected[1])
-                })
-                group.append(button)
+                if (!(!element.matches(article) && viewed && share) && !element.querySelector(media)) return
+                button = downloadButton(element, share)
+                const shareButton = group && share?.closest('button')
+                if (shareButton) {
+                    button.classList.add('xd-toolbar-action')
+                    button.style.minInlineSize = `${shareButton.offsetWidth}px`
+                    button.style.minBlockSize = `${shareButton.offsetHeight}px`
+                }
+                if (!group) button.classList.add('xd-viewer-download')
+                ;(group ?? element).append(button)
             }
-            button.dataset.post = match[1]
-            const post = posts.get(match[1])
-            paint(button, post?.saved.size ? 'complete' : post?.pending.size ? 'pending' : '')
+            const item = viewed && photoAt(posts.get(id), Number(viewed[3]))
+            if (!viewed || item || button.dataset.post !== id || button.dataset.position !== viewed[3]) {
+                bind(button, id, item?.id, viewed?.[3])
+            }
         }
 
-        function render(post, failure = false) {
-            const state = post.saved.size ? 'complete' : post.pending.size ? 'pending' : failure ? 'failed' : ''
-            for (const button of document.querySelectorAll(`.xd-download[data-post="${post.id}"]`)) paint(button, state)
+        function activate(button, element, event) {
+            const isTile = !element.matches(surface)
+            const id = isTile ? undefined : postOn(element)
+            const selected = isTile ? tilePhoto(element) : null
+            const match = isTile ? selected?.match : viewedPhoto(id)
+            if (!match) {
+                if (element.matches(viewerToolbar)) return
+                if (id) choose(button, id, event.pointerType === 'mouse')
+                else if (isTile) paint(button, 'unavailable', 'Download photo')
+                return
+            }
+            const post = getPost(match[2])
+            const item = selected?.item ?? photoAt(post, Number(match[3]))
+                ?? photoFrom(match, visiblePhoto(element.closest(viewer) ?? document))
+            if (!item) return paint(button, 'unavailable', 'Download photo')
+            bind(button, post.id, item.id, match[3])
+            save(post, item)
         }
 
-        function choose(button, id) {
+        function downloadButton(element, share) {
+            const button = document.createElement('button')
+            button.type = 'button'
+            button.className = 'xd-download'
+            const svg = share?.cloneNode(false) ?? document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+            svg.setAttribute('viewBox', '0 0 24 24')
+            svg.setAttribute('aria-hidden', 'true')
+            if (share) {
+                const style = getComputedStyle(share)
+                button.style.setProperty('--xd-icon-color', style.color)
+                svg.style.fontSize = style.fontSize
+            } else svg.classList.add('xd-fallback-icon')
+            const path = document.createElementNS(svg.namespaceURI, 'path')
+            path.setAttribute('d', downloadPath)
+            path.setAttribute('fill', 'currentColor')
+            svg.append(path)
+            button.append(svg)
+            button.addEventListener('click', event => {
+                event.stopPropagation()
+                event.preventDefault()
+                activate(button, element, event)
+            })
+            return button
+        }
+
+        function photoAt(post, position) {
+            if (!post) return
+            for (const item of post.items.values()) if (item.kind === 'photo' && item.position === position) return item
+        }
+
+        function tilePhoto(element) {
+            if (!element.matches(tilesOnPage()) || element.closest(surface)) return
+            const link = element.querySelector(photoLink)
+            const match = link?.origin === location.origin && link.pathname.match(photo)
+            const item = match && photoFrom(match, link.querySelector(photoImage))
+            if (item) return { match, item }
+        }
+
+        function installTile(element) {
+            const selected = tilePhoto(element)
+            let button = element.querySelector(':scope > .xd-download')
+            if (!selected) return button?.remove()
+            if (!button) {
+                button = downloadButton(element)
+                button.classList.add('xd-photo-download')
+                if (getComputedStyle(element).position === 'static') element.classList.add('xd-photo-tile')
+                element.append(button)
+            }
+            const { match, item } = selected
+            bind(button, match[2], item.id, match[3])
+        }
+
+        function photoFrom(match, image) {
+            if (!image) return null
+            const [, author, id, index] = match
+            const position = Number(index)
+            const item = normalize({ kind: 'photo', preview: image.currentSrc || image.src }, id, author, position)
+            if (!item) return null
+            return posts.get(id)?.items.get(item.id) ?? item
+        }
+
+        function visiblePhoto(element) {
+            // X renders neighboring slides too; use the photo occupying the most viewport space.
+            const slides = '[aria-label="Media Viewer"] .h-full.w-full.shrink-0, [data-testid="swipe-to-dismiss"]'
+            let visible, largest = 0
+            for (const image of element.querySelectorAll(photoImage)) {
+                if (!image.closest(slides) || image.closest(`${article}, [aria-hidden="true"]`)) continue
+                const { left, right, top, bottom } = image.getBoundingClientRect()
+                const area = Math.max(0, Math.min(innerWidth, right) - Math.max(0, left))
+                    * Math.max(0, Math.min(innerHeight, bottom) - Math.max(0, top))
+                if (area > largest) {
+                    largest = area
+                    visible = image
+                }
+            }
+            return visible
+        }
+
+        function bind(button, id, item, position) {
+            const post = posts.get(id)
+            button.dataset.post = id
+            if (position) {
+                button.dataset.photo = item ?? ''
+                button.dataset.position = position
+                paint(button, itemState(post, item), 'Download photo')
+            } else {
+                delete button.dataset.photo
+                delete button.dataset.position
+                paint(button, postState(post))
+            }
+        }
+
+        function render(post, id, failure = false) {
+            const fallback = failure ? 'failed' : ''
+            const photoState = itemState(post, id, fallback)
+            const state = postState(post, fallback)
+            for (const button of document.querySelectorAll(`.xd-download[data-post="${post.id}"]`)) {
+                if (button.dataset.photo === undefined) paint(button, state)
+                else if (button.dataset.photo === id) paint(button, photoState, 'Download photo')
+            }
+            if (picker?.post === post) updateRow(picker.rows.get(id), photoState)
+        }
+
+        function choose(button, id, dismissOnLeave) {
             const post = getPost(id)
             const items = new Map(post.items)
             for (const relatedId of post.related) {
                 for (const [key, item] of posts.get(relatedId)?.items ?? []) if (!items.has(key)) items.set(key, item)
             }
-            const choices = [...items.values()]
-            if (!choices.length) paint(button, 'unavailable')
-            else if (choices.length > 1) openPicker(button, post, choices)
-            else save(post, choices[0])
+            if (!items.size) paint(button, 'unavailable')
+            else if (items.size === 1) save(post, items.values().next().value)
+            else openPicker(button, post, [...items.values()], dismissOnLeave)
         }
 
-        function openPicker(button, post, items) {
-            if (picker?.matches(':popover-open')) {
-                const sameButton = picker.id === button.getAttribute('aria-controls')
-                picker.hidePopover()
-                if (sameButton) return
+        function openPicker(button, post, items, dismissOnLeave) {
+            if (picker) {
+                const previous = picker
+                previous.dialog.hidePopover()
+                if (previous.button === button) return
             }
             const dialog = document.createElement('div')
-            picker = dialog
             dialog.id = 'xd-media-picker'
             dialog.popover = 'auto'
             dialog.setAttribute('role', 'dialog')
             dialog.className = 'xd-picker'
+            if (items.length >= 4) dialog.classList.add('xd-picker-grid')
             dialog.setAttribute('aria-label', 'Choose media to download')
             const all = document.createElement('button')
             all.type = 'button'
-            all.className = 'xd-choice'
+            all.className = 'xd-choice xd-choice-all'
             all.textContent = 'All'
             all.setAttribute('aria-label', 'Download all attachments')
             all.addEventListener('click', () => {
@@ -206,7 +362,7 @@
             })
             dialog.append(all)
             const rows = new Map()
-            post.rows = rows
+            picker = { dialog, button, post, rows }
             for (const [index, item] of items.entries()) {
                 const option = document.createElement('button')
                 option.className = 'xd-choice'
@@ -220,18 +376,26 @@
                 label.setAttribute('aria-live', 'polite')
                 option.append(preview, title, label)
                 option.addEventListener('click', () => save(post, item))
-                rows.set(item.id, { option, label })
-                updateRow(post, item.id)
+                const row = { option, label }
+                rows.set(item.id, row)
+                updateRow(row, itemState(post, item.id))
                 dialog.append(option)
             }
+            let grace
             const position = () => {
                 if (!button.isConnected) return dialog.hidePopover()
                 const anchor = button.getBoundingClientRect()
                 const { width, height } = dialog.getBoundingClientRect()
                 const gap = 8
-                const top = anchor.bottom + gap + height <= innerHeight ? anchor.bottom + gap : anchor.top - height - gap
-                dialog.style.top = `${Math.max(gap, Math.min(top, innerHeight - height - gap))}px`
-                dialog.style.left = `${Math.max(gap, Math.min(anchor.right - width, innerWidth - width - gap))}px`
+                const preferredTop = anchor.bottom + gap + height <= innerHeight ? anchor.bottom + gap : anchor.top - height - gap
+                const top = Math.max(gap, Math.min(preferredTop, innerHeight - height - gap))
+                const left = Math.max(gap, Math.min(anchor.right - width, innerWidth - width - gap))
+                dialog.style.top = `${top}px`
+                dialog.style.left = `${left}px`
+                if (dismissOnLeave) grace = {
+                    left: Math.min(anchor.left, left), right: Math.max(anchor.right, left + width),
+                    top: Math.min(anchor.top, top), bottom: Math.max(anchor.bottom, top + height),
+                }
             }
             const listeners = new AbortController()
             dialog.addEventListener('beforetoggle', event => {
@@ -239,8 +403,7 @@
                 listeners.abort()
                 button.removeAttribute('aria-controls')
                 button.removeAttribute('aria-expanded')
-                if (post.rows === rows) post.rows = null
-                if (picker === dialog) picker = null
+                if (picker?.dialog === dialog) picker = null
                 queueMicrotask(() => dialog.remove())
             })
             ;(document.fullscreenElement ?? document.body).append(dialog)
@@ -248,23 +411,33 @@
             button.setAttribute('aria-expanded', 'true')
             dialog.showPopover({ source: button })
             position()
-            addEventListener('resize', position, { signal: listeners.signal })
-            addEventListener('scroll', position, { capture: true, signal: listeners.signal })
+            const options = { capture: true, signal: listeners.signal }
+            addEventListener('resize', position, options)
+            addEventListener('scroll', position, options)
+            if (dismissOnLeave) {
+                addEventListener('pointermove', event => {
+                    if (event.pointerType !== 'mouse' || !grace) return
+                    const { clientX: x, clientY: y } = event
+                    const { left, right, top, bottom } = grace
+                    if (x < left || x > right || y < top || y > bottom) dialog.hidePopover()
+                }, options)
+                addEventListener('pointerout', event => {
+                    if (event.pointerType === 'mouse' && !event.relatedTarget) dialog.hidePopover()
+                }, options)
+            }
             all.focus({ preventScroll: true })
         }
 
-        function updateRow(post, id, failure = false) {
-            const row = post.rows?.get(id)
+        function updateRow(row, state) {
             if (!row) return
-            row.option.disabled = post.pending.has(id)
-            row.label.textContent = row.option.disabled ? 'Saving…' : failure ? 'Not saved · Retry' : post.saved.has(id) ? 'Saved' : ''
+            row.option.disabled = state === 'pending'
+            row.label.textContent = { pending: 'Saving…', failed: 'Not saved · Retry', complete: 'Saved' }[state] ?? ''
         }
 
         async function save(post, item) {
             if (post.pending.has(item.id)) return
             post.pending.add(item.id)
-            updateRow(post, item.id)
-            render(post)
+            render(post, item.id)
             let saved = false
             try {
                 saved = await browser.runtime.sendMessage({ type: 'save-media', item }) === true
@@ -273,25 +446,24 @@
                 console.warn('XDownloader:', error.message)
             } finally {
                 post.pending.delete(item.id)
-                updateRow(post, item.id, !saved)
-                render(post, !saved)
+                render(post, item.id, !saved)
             }
         }
     }
 
-    function paint(button, state) {
+    function paint(button, state, action = 'Download media') {
         button.dataset.state = state
         button.title = { complete: 'Media saved', pending: 'Saving media…', failed: 'Download failed — retry',
-            unavailable: 'Media not available — reload the post', '': 'Download media' }[state]
+            unavailable: 'Media not available — reload the post', '': action }[state]
         button.setAttribute('aria-label', button.title)
     }
 
-    function normalize(item, postId, owner, position, count) {
+    function normalize(item, postId, owner, position, count = 1) {
         if (!item || !Object.hasOwn(mediaHost, item.kind)) return null
         const preview = cdn(item.preview, 'pbs.twimg.com')
         if (!preview) return null
         const { kind } = item
-        let url
+        let url, id = item.id
         if (kind === 'photo') {
             if (!preview.pathname.startsWith('/media/')) return null
             const original = new URL(preview)
@@ -300,6 +472,8 @@
                 original.pathname = original.pathname.slice(0, match.index)
                 if (!original.searchParams.has('format')) original.searchParams.set('format', match[1])
             }
+            original.pathname = original.pathname.replace(/:[a-z]+$/i, '')
+            id = original.pathname
             original.searchParams.set('name', 'orig')
             url = original.href
         }
@@ -320,8 +494,8 @@
         if (!url && !best) return null
         preview.searchParams.set('name', 'small')
         const author = typeof owner === 'string' && /^\w+$/.test(owner) ? owner : 'unknown'
-        const name = `${author}-${postId}${count > 1 ? `-${position}` : ''}`
-        return { id: typeof item.id === 'string' && item.id ? item.id : new URL(url ?? best).pathname,
+        const name = `${author}-${postId}${count > 1 || position > 1 ? `-${position}` : ''}`
+        return { id: typeof id === 'string' && id ? id : new URL(best).pathname,
             kind, position, preview: preview.href, url: url ?? best, balanced, smallest, name }
     }
 
